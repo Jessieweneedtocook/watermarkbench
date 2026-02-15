@@ -28,12 +28,7 @@ class _AttackNamespace:
 
         def _call(input_image: PathLike, strength, output_dir: Optional[PathLike] = None) -> str:
             x_chw_u8, pil, p = _load_image(input_image)
-
-            # core expects torch tensor; attacks.py handles layout/range preservation.
-            # Provide CHW uint8; it will be preserved by _apply_attack_preserve in your core.
             y = core_fn(x_chw_u8, strength)
-
-            # Convert to PIL and save with required naming pattern
             out_path = _output_path(p, name, strength, output_dir=output_dir)
             out_pil = _tensor_to_pil(y, mode_hint=pil.mode)
             out_pil.save(out_path)
@@ -45,3 +40,4 @@ class _AttackNamespace:
 attack = _AttackNamespace()
 
 __all__ = ["attack"]
+
