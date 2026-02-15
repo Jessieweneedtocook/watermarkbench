@@ -12,7 +12,7 @@ license = {text = "MIT"}
 authors = [{name = "YOUR NAME"}]
 
 dependencies = [
-  "numpy>=1.23",
+  "numpy>=1.23,<3",
   "pillow>=10",
   "torch>=2.0",
   "torchvision>=0.15",
@@ -29,4 +29,5 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
 
