@@ -18,16 +18,15 @@ dependencies = [
   "torchvision>=0.15",
   "opencv-python>=4.7",
   "scikit-image>=0.21",
-  "kornia>=0.7"
+  "kornia>=0.7",
+  "compressai>=1.2"
 ]
-
-[project.optional-dependencies]
-compressai = ["compressai>=1.2"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
 
 
