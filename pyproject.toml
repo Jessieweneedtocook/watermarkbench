@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "watermarkbench"
+version = "0.1.0"
+description = "WatermarkBench: attacks + fidelity metrics + extraction metrics"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "YOUR NAME"}]
+
+dependencies = [
+  "numpy>=1.23",
+  "pillow>=10",
+  "torch>=2.0",
+  "torchvision>=0.15",
+  "opencv-python>=4.7",
+  "scikit-image>=0.21",
+]
+
+[project.optional-dependencies]
+kornia = ["kornia>=0.7"]
+compressai = ["compressai>=1.2"]
+dev = ["pytest>=7", "ruff>=0.4", "build>=1.0", "twine>=5.0"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
