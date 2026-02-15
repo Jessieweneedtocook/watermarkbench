@@ -19,7 +19,8 @@ dependencies = [
   "opencv-python>=4.7",
   "scikit-image>=0.21",
   "kornia>=0.7",
-  "compressai>=1.2"
+  "compressai>=1.2",
+  "pillow-jxl-plugin>=1.3.0"
 ]
 
 [tool.setuptools]
@@ -27,6 +28,7 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
 
 
 
