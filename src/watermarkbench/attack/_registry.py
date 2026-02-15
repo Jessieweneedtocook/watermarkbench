@@ -4,8 +4,6 @@ from typing import Callable, Dict
 
 from . import _core
 
-# Key = API name user calls: wb.attack.rotate(...)
-# Value = function in your attacks core.
 ATTACKS: Dict[str, Callable] = {
     "rotate": _core.rotate_tensor,
     "crop": _core.crop,
@@ -23,3 +21,4 @@ ATTACKS: Dict[str, Callable] = {
     "sharpness": _core.sharpness,
     "median_filtering": _core.median_filtering,
 }
+
