@@ -30,10 +30,8 @@ def _detect_layout(x: torch.Tensor) -> str:
     if x.dim() == 2:
         return "HW"
     if x.dim() == 3:
-        # CHW vs HWC
         return "CHW" if x.shape[0] <= 4 else "HWC"
     if x.dim() == 4:
-        # BCHW vs BHWC
         return "BCHW" if x.shape[1] <= 4 else "BHWC"
     raise ValueError(f"Unsupported tensor dim={x.dim()} with shape={tuple(x.shape)}")
 
@@ -48,15 +46,15 @@ def _to_bchw(x: torch.Tensor):
     }
 
     if layout == "HW":
-        x_bchw = x.unsqueeze(0).unsqueeze(0)               # 1x1xHxW
+        x_bchw = x.unsqueeze(0).unsqueeze(0)               
     elif layout == "CHW":
-        x_bchw = x.unsqueeze(0)                            # 1xCxHxW
+        x_bchw = x.unsqueeze(0)                            
     elif layout == "HWC":
-        x_bchw = x.permute(2, 0, 1).unsqueeze(0)           # 1xCxHxW
+        x_bchw = x.permute(2, 0, 1).unsqueeze(0)          
     elif layout == "BCHW":
         x_bchw = x
     elif layout == "BHWC":
-        x_bchw = x.permute(0, 3, 1, 2)                     # BxCxHxW
+        x_bchw = x.permute(0, 3, 1, 2)                     
     else:
         raise ValueError(f"Unsupported layout={layout}")
 
@@ -67,15 +65,15 @@ def _from_bchw(x_bchw: torch.Tensor, meta: dict) -> torch.Tensor:
     layout = meta["layout"]
 
     if layout == "HW":
-        return x_bchw[0, 0]                                # HW
+        return x_bchw[0, 0]                               
     if layout == "CHW":
-        return x_bchw[0]                                   # CHW
+        return x_bchw[0]                                   
     if layout == "HWC":
-        return x_bchw[0].permute(1, 2, 0)                  # HWC
+        return x_bchw[0].permute(1, 2, 0)                  
     if layout == "BCHW":
         return x_bchw
     if layout == "BHWC":
-        return x_bchw.permute(0, 2, 3, 1)                  # BHWC
+        return x_bchw.permute(0, 2, 3, 1)                  
 
     raise ValueError(f"Unsupported layout={layout}")
 
@@ -197,7 +195,6 @@ def scaled(x: torch.Tensor, scale: float) -> torch.Tensor:
         _, _, H, W = z.shape
         s = float(scale)
 
-        # backward compat: scale given as pct
         if s > 3.0:
             s = 1.0 + (s / 100.0)
 
@@ -257,10 +254,10 @@ def jpeg_compression(x: torch.Tensor, quality: int) -> torch.Tensor:
 
         for i in range(B):
             x01 = (z_cpu[i] + 1.0) / 2.0
-            img_u8 = (x01 * 255.0).round().clamp(0, 255).to(torch.uint8)  # CHW
+            img_u8 = (x01 * 255.0).round().clamp(0, 255).to(torch.uint8) 
 
             jpeg_bytes = tvio.encode_jpeg(img_u8, quality=q)
-            dec_u8 = tvio.decode_jpeg(jpeg_bytes)  # CHW uint8
+            dec_u8 = tvio.decode_jpeg(jpeg_bytes)  
 
             dec_f = dec_u8.to(torch.float32) / 255.0
             dec_m11 = (dec_f * 2.0 - 1.0).clamp(-1.0, 1.0)
@@ -313,12 +310,12 @@ def jpeg2000_compression(
             dec_pil = Image.open(buf)
             if img_u8.shape[0] == 1:
                 dec_pil = dec_pil.convert("L")
-                dec_np = np.array(dec_pil, dtype=np.uint8)  # H W
-                dec_u8 = torch.from_numpy(dec_np).unsqueeze(0)  # 1 H W
+                dec_np = np.array(dec_pil, dtype=np.uint8)  
+                dec_u8 = torch.from_numpy(dec_np).unsqueeze(0)  
             else:
                 dec_pil = dec_pil.convert("RGB")
-                dec_np = np.array(dec_pil, dtype=np.uint8)  # H W 3
-                dec_u8 = torch.from_numpy(dec_np).permute(2, 0, 1).contiguous()  # 3 H W
+                dec_np = np.array(dec_pil, dtype=np.uint8)  
+                dec_u8 = torch.from_numpy(dec_np).permute(2, 0, 1).contiguous()  
 
             dec_f = dec_u8.to(torch.float32) / 255.0
             dec_m11 = (dec_f * 2.0 - 1.0).clamp(-1.0, 1.0)
@@ -363,12 +360,11 @@ def jpegai_compression(x: torch.Tensor, quality: int = 4) -> torch.Tensor:
     def _core(z_m11: torch.Tensor):
         device = z_m11.device
 
-        # [-1,1] -> [0,1]
+        
         z01 = ((z_m11 + 1.0) / 2.0).clamp(0.0, 1.0)
 
         B, C, H, W = z01.shape
 
-        # CompressAI models expect 3-channel RGB.
         if C == 1:
             z01_in = z01.repeat(1, 3, 1, 1)
             single_channel = True
@@ -386,14 +382,11 @@ def jpegai_compression(x: torch.Tensor, quality: int = 4) -> torch.Tensor:
             out = model(x_pad)
             x_hat = out["x_hat"].clamp(0.0, 1.0)
 
-        # crop back to original size
         x_hat = x_hat[:, :, :orig_h, :orig_w]
 
-        # if input was grayscale, return single channel (use first channel)
         if single_channel:
             x_hat = x_hat[:, :1, :, :]
 
-        # [0,1] -> [-1,1]
         y_m11 = (x_hat * 2.0 - 1.0).clamp(-1.0, 1.0)
         return y_m11
 
@@ -413,7 +406,6 @@ def jpegxl_compression(x: torch.Tensor, quality: int = 50) -> torch.Tensor:
             x01 = (z_cpu[i] + 1.0) / 2.0
             img_u8 = (x01 * 255.0).round().clamp(0, 255).to(torch.uint8)
 
-            # Create PIL image
             if img_u8.shape[0] == 1:
                 img_np = img_u8[0].numpy()
                 img_pil = Image.fromarray(img_np, mode="L")
@@ -423,7 +415,6 @@ def jpegxl_compression(x: torch.Tensor, quality: int = 50) -> torch.Tensor:
 
             buf = io.BytesIO()
 
-            # Try saving as JXL
             try:
                 img_pil.save(buf, format="JXL", quality=q)
             except Exception as e:
@@ -435,7 +426,6 @@ def jpegxl_compression(x: torch.Tensor, quality: int = 50) -> torch.Tensor:
 
             buf.seek(0)
 
-            # Decode back
             dec_pil = Image.open(buf)
             if img_u8.shape[0] == 1:
                 dec_pil = dec_pil.convert("L")
@@ -462,13 +452,12 @@ def gaussian_noise(x: torch.Tensor, var: float = 0.01) -> torch.Tensor:
         z = z.clamp(-1.0, 1.0)
         v = float(var)
 
-        # backward compat: old sigma values (5,15,30) etc.
         if v > 1.0:
             sigma01 = v / 255.0
             v = sigma01 * sigma01
 
         sigma01 = math.sqrt(max(v, 0.0))
-        sigma_m11 = 2.0 * sigma01  # convert [0,1] sigma to [-1,1] sigma
+        sigma_m11 = 2.0 * sigma01  
 
         noise = torch.normal(
             mean=0.0,
@@ -556,3 +545,4 @@ __all__ = [
     "gaussian_noise", "speckle_noise",
     "blurring", "brightness", "sharpness", "median_filtering",
 ]
+
