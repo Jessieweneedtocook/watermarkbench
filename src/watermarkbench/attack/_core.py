@@ -5,6 +5,10 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
+import subprocess
+import tempfile
+import shutil
+from pathlib import Path
 from torchvision.transforms import InterpolationMode
 from PIL import Image
 import torchvision.io as tvio
@@ -444,6 +448,102 @@ def jpegxl_compression(x: torch.Tensor, quality: int = 50) -> torch.Tensor:
 
     return _apply_attack_preserve(x, _core)
 
+def jpegxs_compression(
+    x: torch.Tensor,
+    bitrate: str = "40M",
+    pix_fmt: str = "yuv444p10le",
+) -> torch.Tensor:
+
+    def _core(z: torch.Tensor):
+        if shutil.which("ffmpeg") is None:
+            raise RuntimeError(
+                "ffmpeg not found on PATH. Install ffmpeg built with libsvtjpegxs "
+                "(--enable-libsvtjpegxs) to use jpegxs_compression."
+            )
+
+        device = z.device
+        z_cpu = z.detach().cpu().clamp(-1.0, 1.0)
+
+        B, C, H, W = z_cpu.shape
+        outs = []
+
+        br = bitrate
+        if isinstance(br, (int, float, np.integer, np.floating)):
+            br = f"{int(br)}M"
+        br = str(br)
+
+        for i in range(B):
+            x01 = (z_cpu[i] + 1.0) / 2.0
+            img_u8 = (x01 * 255.0).round().clamp(0, 255).to(torch.uint8)
+
+            if img_u8.shape[0] == 1:
+                img_np = img_u8[0].numpy()
+                img_pil = Image.fromarray(img_np, mode="L")
+            else:
+                img_np = img_u8.permute(1, 2, 0).numpy()
+                img_pil = Image.fromarray(img_np, mode="RGB")
+
+            with tempfile.TemporaryDirectory() as td:
+                td = Path(td)
+                in_png = td / "in.png"
+                out_jxs = td / "out.jxs"
+                out_png = td / "out.png"
+
+                img_pil.save(in_png)
+
+                encode_cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-loop", "1",
+                    "-i", str(in_png),
+                    "-frames:v", "1",
+                    "-c:v", "libsvtjpegxs",
+                    "-pix_fmt", str(pix_fmt),
+                    "-b:v", br,
+                    str(out_jxs),
+                ]
+
+                enc = subprocess.run(encode_cmd, capture_output=True, text=True)
+                if enc.returncode != 0:
+                    raise RuntimeError(
+                        "JPEG-XS encode failed. Ensure ffmpeg supports libsvtjpegxs.\n"
+                        f"Command: {' '.join(encode_cmd)}\n"
+                        f"stderr:\n{enc.stderr}"
+                    )
+
+                decode_cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-i", str(out_jxs),
+                    "-frames:v", "1",
+                    str(out_png),
+                ]
+
+                dec = subprocess.run(decode_cmd, capture_output=True, text=True)
+                if dec.returncode != 0:
+                    raise RuntimeError(
+                        "JPEG-XS decode failed.\n"
+                        f"Command: {' '.join(decode_cmd)}\n"
+                        f"stderr:\n{dec.stderr}"
+                    )
+
+                dec_pil = Image.open(out_png)
+                if img_u8.shape[0] == 1:
+                    dec_pil = dec_pil.convert("L")
+                    dec_np = np.array(dec_pil, dtype=np.uint8)
+                    dec_u8 = torch.from_numpy(dec_np).unsqueeze(0)
+                else:
+                    dec_pil = dec_pil.convert("RGB")
+                    dec_np = np.array(dec_pil, dtype=np.uint8)
+                    dec_u8 = torch.from_numpy(dec_np).permute(2, 0, 1).contiguous()
+
+            dec_f = dec_u8.to(torch.float32) / 255.0
+            dec_m11 = (dec_f * 2.0 - 1.0).clamp(-1.0, 1.0)
+            outs.append(dec_m11)
+
+        return torch.stack(outs, dim=0).to(device)
+
+    return _apply_attack_preserve(x, _core)
 
 
 def gaussian_noise(x: torch.Tensor, var: float = 0.01) -> torch.Tensor:
@@ -541,8 +641,9 @@ def median_filtering(x: torch.Tensor, k: int) -> torch.Tensor:
 __all__ = [
     "rotate_tensor", "crop", "scaled", "flipping", "resized",
     "jpeg_compression", "jpeg2000_compression",
-    "jpegai_compression", "jpegxl_compression",
+    "jpegai_compression", "jpegxl_compression", "jpegxs_compression",
     "gaussian_noise", "speckle_noise",
     "blurring", "brightness", "sharpness", "median_filtering",
 ]
+
 
