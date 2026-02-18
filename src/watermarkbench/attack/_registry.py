@@ -14,6 +14,7 @@ ATTACKS: Dict[str, Callable] = {
     "jpeg2000": _core.jpeg2000_compression,
     "jpegai": _core.jpegai_compression,
     "jpegxl": _core.jpegxl_compression,
+    "jpegxs": _core.jpegxs_compression,
     "gaussian_noise": _core.gaussian_noise,
     "speckle_noise": _core.speckle_noise,
     "blurring": _core.blurring,
@@ -21,4 +22,5 @@ ATTACKS: Dict[str, Callable] = {
     "sharpness": _core.sharpness,
     "median_filtering": _core.median_filtering,
 }
+
 
