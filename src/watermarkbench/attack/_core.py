@@ -902,28 +902,22 @@ def replace_ai(
 
     mask_rgba = _make_dalle_edit_mask(image, mask_l)
 
-    img_png = _pil_to_png_bytes(image.convert("RGB"))
-    if hasattr(img_png, "getvalue"):  # BytesIO-like
-        img_png = img_png.getvalue()
-
-    msk_png = _pil_to_png_bytes(mask_rgba)
-    if hasattr(msk_png, "getvalue"):  # BytesIO-like
-        msk_png = msk_png.getvalue()
-
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f_img, \
-         tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f_msk:
-        f_img.write(img_png); f_img.flush()
-        f_msk.write(msk_png); f_msk.flush()
-
-        with open(f_img.name, "rb") as img_f, open(f_msk.name, "rb") as msk_f:
-            resp = openai.Image.create_edit(
-                image=("image.png", img_f, "image/png"),
-                mask=("mask.png", msk_f, "image/png"),
-                prompt=prompt,
-                n=1,
-                size=openai_size,
-                model=openai_image_model,
-            )
+    img_file = _pil_to_png_bytes(image.convert("RGB"))
+    img_file.name = "image.png"
+    img_file.seek(0)
+    
+    msk_file = _pil_to_png_bytes(mask_rgba)
+    msk_file.name = "mask.png"
+    msk_file.seek(0)
+    
+    resp = openai.Image.create_edit(
+        image=img_file,
+        mask=msk_file,
+        prompt=prompt,
+        n=1,
+        size=openai_size,
+        model=openai_image_model,
+    )
 
     url = resp["data"][0]["url"]
     r = requests.get(url)
@@ -1027,6 +1021,7 @@ __all__ = [
     "blurring", "brightness", "sharpness", "median_filtering",
     "remove_ai", "replace_ai", "create_ai"
 ]
+
 
 
 
