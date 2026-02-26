@@ -902,13 +902,21 @@ def replace_ai(
 
     mask_rgba = _make_dalle_edit_mask(image, mask_l)
 
-    img_buf = _pil_to_png_bytes(image.convert("RGB"))
-    img_file = BytesIO(img_buf)
-    img_file.name = "image.png" 
+    img_obj = _pil_to_png_bytes(image.convert("RGB"))
+    if isinstance(img_obj, BytesIO):
+        img_file = img_obj
+    else:
+        img_file = BytesIO(img_obj)
+    img_file.name = "image.png"
+    img_file.seek(0)
     
-    msk_buf = _pil_to_png_bytes(mask_rgba)
-    msk_file = BytesIO(msk_buf)
-    msk_file.name = "mask.png" 
+    msk_obj = _pil_to_png_bytes(mask_rgba)
+    if isinstance(msk_obj, BytesIO):
+        msk_file = msk_obj
+    else:
+        msk_file = BytesIO(msk_obj)
+    msk_file.name = "mask.png"
+    msk_file.seek(0)    
     
     resp = openai.Image.create_edit(
         image=img_file,
@@ -1021,6 +1029,7 @@ __all__ = [
     "blurring", "brightness", "sharpness", "median_filtering",
     "remove_ai", "replace_ai", "create_ai"
 ]
+
 
 
 
