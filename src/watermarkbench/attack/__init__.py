@@ -34,10 +34,25 @@ class _AttackNamespace:
             out_pil.save(out_path)
             return str(out_path)
 
+        AI_ATTACKS = {"remove_ai", "replace_ai", "create_ai"}
+
+        if name in AI_ATTACKS:
+            def _call_ai(input_image: PathLike, output_dir: Optional[PathLike] = None, **kwargs) -> str:
+                x_chw_u8, pil, p = _load_image(input_image)
+                y = core_fn(x_chw_u8, None, **kwargs)
+                tag = kwargs.get("tag", "ai")
+                out_path = _output_path(p, name, tag, output_dir=output_dir)
+                out_pil = _tensor_to_pil(y, mode_hint=pil.mode)
+                out_pil.save(out_path)
+                return str(out_path)
+
+            return _call_ai
+
         return _call
 
 
 attack = _AttackNamespace()
 
 __all__ = ["attack"]
+
 
