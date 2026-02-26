@@ -1003,7 +1003,9 @@ __all__ = [
     "jpegai_compression", "jpegxl_compression", "jpegxs_compression",
     "gaussian_noise", "speckle_noise",
     "blurring", "brightness", "sharpness", "median_filtering",
+    "remove_ai", "replace_ai", "create_ai"
 ]
+
 
 
 
