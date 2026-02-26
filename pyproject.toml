@@ -31,7 +31,7 @@ ai = [
     "transformers>=4.30.0",
     "diffusers>=0.20.0",
     "accelerate",
-    "openai",
+    "openai<1.0",
     "requests",
     "opencv-python",
 ]
@@ -44,7 +44,7 @@ all = [
     "transformers>=4.30.0",
     "diffusers>=0.20.0",
     "accelerate",
-    "openai",
+    "openai<1.0",
     "requests",
     "opencv-python"
       ]
@@ -54,6 +54,7 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
 
 
 
