@@ -917,8 +917,8 @@ def replace_ai(
 
         with open(f_img.name, "rb") as img_f, open(f_msk.name, "rb") as msk_f:
             resp = openai.Image.create_edit(
-                image=img_f,
-                mask=msk_f,
+                image=("image.png", img_f, "image/png"),
+                mask=("mask.png", msk_f, "image/png"),
                 prompt=prompt,
                 n=1,
                 size=openai_size,
@@ -1027,6 +1027,7 @@ __all__ = [
     "blurring", "brightness", "sharpness", "median_filtering",
     "remove_ai", "replace_ai", "create_ai"
 ]
+
 
 
 
