@@ -695,12 +695,13 @@ def _get_yolo_and_sam(
     device: Optional[str] = None,
 ):
     dev = _get_device(device)
+
     sam_path = Path(sam_checkpoint)
     if sam_path.exists():
         ckpt_path = str(sam_path)
     else:
-        ckpt_path = ensure_sam_checkpoint(Path(sam_checkpoint).name)
-        
+        ckpt_path = ensure_sam_checkpoint(sam_path.name)
+
     key = f"yolo_sam::{yolo_weights}::{ckpt_path}::{sam_model_type}::{dev}"
     if key in _AI_CACHE:
         return _AI_CACHE[key]
@@ -1015,6 +1016,7 @@ __all__ = [
     "blurring", "brightness", "sharpness", "median_filtering",
     "remove_ai", "replace_ai", "create_ai"
 ]
+
 
 
 
