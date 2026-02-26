@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import shutil
 from pathlib import Path
+from ._weights import ensure_sam_checkpoint
 from torchvision.transforms import InterpolationMode
 from PIL import Image
 import torchvision.io as tvio
@@ -689,12 +690,18 @@ def _pil_rgb_to_chw_u8(pil: Image.Image, like: torch.Tensor) -> torch.Tensor:
 def _get_yolo_and_sam(
     *,
     yolo_weights: str = "yolov10x.pt",
-    sam_checkpoint: str = "weights/sam_vit_h_4b8939.pth",
+    sam_checkpoint: str = "sam_vit_h_4b8939.pth",
     sam_model_type: str = "vit_h",
     device: Optional[str] = None,
 ):
     dev = _get_device(device)
-    key = f"yolo_sam::{yolo_weights}::{sam_checkpoint}::{sam_model_type}::{dev}"
+    sam_path = Path(sam_checkpoint)
+    if sam_path.exists():
+        ckpt_path = str(sam_path)
+    else:
+        ckpt_path = ensure_sam_checkpoint(Path(sam_checkpoint).name)
+        
+    key = f"yolo_sam::{yolo_weights}::{ckpt_path}::{sam_model_type}::{dev}"
     if key in _AI_CACHE:
         return _AI_CACHE[key]
 
@@ -703,13 +710,13 @@ def _get_yolo_and_sam(
 
     yolo = YOLO(yolo_weights)
 
-    sam = sam_model_registry[sam_model_type](checkpoint=sam_checkpoint)
+    sam = sam_model_registry[sam_model_type](checkpoint=ckpt_path)
     sam.to(device=dev)
     predictor = SamPredictor(sam)
 
     _AI_CACHE[key] = (yolo, predictor, dev)
     return yolo, predictor, dev
-
+    
 def _get_blip(*, device: Optional[str] = None):
     dev = _get_device(device)
     key = f"blip::{dev}"
@@ -748,7 +755,7 @@ def _make_primary_mask_yolo_sam(
     *,
     threshold_area: int = 500,
     yolo_weights: str = "yolov10x.pt",
-    sam_checkpoint: str = "weights/sam_vit_h_4b8939.pth",
+    sam_checkpoint: str = "sam_vit_h_4b8939.pth",
     sam_model_type: str = "vit_h",
     device: Optional[str] = None,
 ) -> Image.Image:
@@ -1008,6 +1015,7 @@ __all__ = [
     "blurring", "brightness", "sharpness", "median_filtering",
     "remove_ai", "replace_ai", "create_ai"
 ]
+
 
 
 
