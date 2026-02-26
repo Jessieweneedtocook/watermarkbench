@@ -26,12 +26,12 @@ compressai = ["compressai>=1.2"]
 jxl = ["pillow-jxl-plugin>=1.3.0"]
 ai = [
     "ultralytics>=8.0.0",
-    "segment-anything",
+    "segment-anything @ git+https://github.com/facebookresearch/segment-anything.git",
     "simple-lama-inpainting",
     "transformers>=4.30.0",
     "diffusers>=0.20.0",
     "accelerate",
-    "openai<1.0",
+    "openai==0.28.1",
     "requests",
     "opencv-python",
 ]
@@ -39,12 +39,12 @@ all = [
      "compressai>=1.2", 
      "pillow-jxl-plugin>=1.3.0",
      "ultralytics>=8.0.0",
-    "segment-anything",
+    "segment-anything @ git+https://github.com/facebookresearch/segment-anything.git",
     "simple-lama-inpainting",
     "transformers>=4.30.0",
     "diffusers>=0.20.0",
     "accelerate",
-    "openai<1.0",
+    "openai==0.28.1",
     "requests",
     "opencv-python"
       ]
@@ -54,6 +54,7 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
 
 
 
