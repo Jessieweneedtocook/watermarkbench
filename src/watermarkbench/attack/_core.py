@@ -1,4 +1,4 @@
-
+from __future__ import annotations
 import io
 import math
 import numpy as np
@@ -12,7 +12,6 @@ from pathlib import Path
 from torchvision.transforms import InterpolationMode
 from PIL import Image
 import torchvision.io as tvio
-from __future__ import annotations
 
 import io
 from typing import Optional, Tuple, Any
@@ -647,8 +646,28 @@ def median_filtering(x: torch.Tensor, k: int) -> torch.Tensor:
 
 
 # ============================================================
-# AI pipeline helpers
+# 4) AI pipeline
 # ============================================================
+
+import requests
+import openai
+from io import BytesIO
+
+_AI_CACHE: dict[str, Any] = {}
+
+def _ensure_openai_key():
+    import os
+    if getattr(openai, "api_key", None):
+        return
+    openai.api_key = os.environ.get("OPENAI_API_KEY")
+    if not openai.api_key:
+        raise RuntimeError(
+            "OpenAI API key not set. Set OPENAI_API_KEY or set openai.api_key "
+            "before calling replace_ai/create_ai."
+        )
+
+def _get_device(device: Optional[str] = None) -> str:
+    return device or ("cuda" if torch.cuda.is_available() else "cpu")
 
 def _chw_u8_to_pil_rgb(x_chw_u8: torch.Tensor) -> Image.Image:
     x = x_chw_u8.detach().cpu()
@@ -657,36 +676,15 @@ def _chw_u8_to_pil_rgb(x_chw_u8: torch.Tensor) -> Image.Image:
     if x.dim() != 3:
         raise ValueError(f"Expected CHW tensor, got {tuple(x.shape)}")
     if x.shape[0] == 1:
-        arr = x[0].numpy()
-        return Image.fromarray(arr, mode="L").convert("RGB")
-    arr = x.permute(1, 2, 0).numpy()
-    return Image.fromarray(arr, mode="RGB")
+        return Image.fromarray(x[0].numpy(), mode="L").convert("RGB")
+    return Image.fromarray(x.permute(1, 2, 0).numpy(), mode="RGB")
 
 def _pil_rgb_to_chw_u8(pil: Image.Image, like: torch.Tensor) -> torch.Tensor:
     if like.shape[0] == 1:
-        arr = np.array(pil.convert("L"))
-        return torch.from_numpy(arr).unsqueeze(0).to(torch.uint8)
-    arr = np.array(pil.convert("RGB"))
-    return torch.from_numpy(arr).permute(2, 0, 1).contiguous().to(torch.uint8)
-
-def _pil_mask_to_filelike_png(mask_l: Image.Image) -> io.BytesIO:
-    bio = io.BytesIO()
-    mask_l.convert("L").save(bio, format="PNG")
-    bio.seek(0)
-    return bio
-
-def _pil_rgb_to_filelike_png(img_rgb: Image.Image) -> io.BytesIO:
-    bio = io.BytesIO()
-    img_rgb.convert("RGB").save(bio, format="PNG")
-    bio.seek(0)
-    return bio
-
-AI_CACHE: dict[str, Any] = {}
-
-def _get_device(device: Optional[str] = None) -> str:
-    if device:
-        return device
-    return "cuda" if torch.cuda.is_available() else "cpu"
+        arr = np.array(pil.convert("L"), dtype=np.uint8)
+        return torch.from_numpy(arr).unsqueeze(0)
+    arr = np.array(pil.convert("RGB"), dtype=np.uint8)
+    return torch.from_numpy(arr).permute(2, 0, 1).contiguous()
 
 def _get_yolo_and_sam(
     *,
@@ -712,49 +710,32 @@ def _get_yolo_and_sam(
     _AI_CACHE[key] = (yolo, predictor, dev)
     return yolo, predictor, dev
 
-def _get_blip(
-    *,
-    device: Optional[str] = None,
-):
+def _get_blip(*, device: Optional[str] = None):
     dev = _get_device(device)
     key = f"blip::{dev}"
     if key in _AI_CACHE:
         return _AI_CACHE[key]
-
     from transformers import BlipProcessor, BlipForConditionalGeneration
-
     processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
     model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to(dev)
-
     _AI_CACHE[key] = (processor, model, dev)
     return processor, model, dev
 
-def _get_instruct_pix2pix(
-    *,
-    model_name: str = "paint-by-inpaint/general-finetuned-mb",
-    device: Optional[str] = None,
-):
+def _get_instruct_pix2pix(*, model_name="paint-by-inpaint/general-finetuned-mb", device: Optional[str] = None):
     dev = _get_device(device)
     key = f"ip2p::{model_name}::{dev}"
     if key in _AI_CACHE:
         return _AI_CACHE[key]
-
-    import torch as _torch
     from diffusers import StableDiffusionInstructPix2PixPipeline, EulerAncestralDiscreteScheduler
-
-    pipe = StableDiffusionInstructPix2PixPipeline.from_pretrained(
-        model_name,
-        torch_dtype=_torch.float16 if dev.startswith("cuda") else _torch.float32,
-    ).to(dev)
+    dtype = torch.float16 if dev.startswith("cuda") else torch.float32
+    pipe = StableDiffusionInstructPix2PixPipeline.from_pretrained(model_name, torch_dtype=dtype).to(dev)
     pipe.scheduler = EulerAncestralDiscreteScheduler.from_config(pipe.scheduler.config)
-
     _AI_CACHE[key] = (pipe, dev)
     return pipe, dev
 
 def _yolov10_detection(model, image_batch: list[np.ndarray]):
     results = model(image_batch)
-    batch_boxes = []
-    batch_labels = []
+    batch_boxes, batch_labels = [], []
     for result in results:
         boxes = result.boxes.xyxy.cpu().numpy()
         labels = [result.names[int(cls.cpu().numpy())] for cls in result.boxes.cls]
@@ -771,7 +752,7 @@ def _make_primary_mask_yolo_sam(
     sam_model_type: str = "vit_h",
     device: Optional[str] = None,
 ) -> Image.Image:
-    yolo, predictor, dev = _get_yolo_and_sam(
+    yolo, predictor, _ = _get_yolo_and_sam(
         yolo_weights=yolo_weights,
         sam_checkpoint=sam_checkpoint,
         sam_model_type=sam_model_type,
@@ -779,14 +760,13 @@ def _make_primary_mask_yolo_sam(
     )
 
     img_np = np.array(image_rgb.convert("RGB"))
-
     boxes_batch, labels_batch = _yolov10_detection(yolo, [img_np])
     boxes = boxes_batch[0]
     labels = labels_batch[0]
 
     predictor.set_image(img_np)
 
-    all_masks = []
+    all_masks_with_area = []
     for box, label in zip(boxes, labels):
         input_box = np.array(box)
         masks, _, _ = predictor.predict(
@@ -795,14 +775,14 @@ def _make_primary_mask_yolo_sam(
             box=input_box[None, :],
             multimask_output=True,
         )
-        for m in masks:
-            area = int(m.sum())
+        for mask in masks:
+            area = int(mask.sum())
             if area > threshold_area:
-                all_masks.append((m, area))
+                all_masks_with_area.append((mask, area))
 
-    all_masks.sort(key=lambda t: t[1], reverse=True)
+    all_masks_with_area.sort(key=lambda x: x[1], reverse=True)
 
-    if len(all_masks) < 1:
+    if len(all_masks_with_area) < 1:
         if len(boxes) == 0:
             return Image.fromarray(np.zeros((img_np.shape[0], img_np.shape[1]), dtype=np.uint8), mode="L")
         x0, y0, x1, y1 = map(int, boxes[0])
@@ -810,9 +790,8 @@ def _make_primary_mask_yolo_sam(
         rect[y0:y1, x0:x1] = 255
         return Image.fromarray(rect, mode="L")
 
-    mask_bool = all_masks[0][0]
-    mask_u8 = (mask_bool.astype(np.uint8) * 255)
-    return Image.fromarray(mask_u8, mode="L")
+    mask_bool = all_masks_with_area[0][0]
+    return Image.fromarray((mask_bool.astype(np.uint8) * 255), mode="L")
 
 def _masked_crop(image_rgb: Image.Image, mask_l: Image.Image) -> Image.Image:
     img = np.array(image_rgb.convert("RGB"))
@@ -820,22 +799,22 @@ def _masked_crop(image_rgb: Image.Image, mask_l: Image.Image) -> Image.Image:
     out = img.copy()
     out[~m] = 0
     return Image.fromarray(out, mode="RGB")
-    def _blip_caption(pil_rgb: Image.Image, *, device: Optional[str] = None) -> str:
+
+def _blip_caption(pil_rgb: Image.Image, *, device: Optional[str] = None) -> str:
     processor, model, dev = _get_blip(device=device)
-    inputs = processor(images=pil_rgb, return_tensors="pt").to(dev)
+    inputs = processor(images=pil_rgb, return_tensors="pt").to(dev, torch.float32)
     out = model.generate(**inputs)
-    return processor.batch_decode(out, skip_special_tokens=True)[0]
+    return processor.decode(out[0], skip_special_tokens=True)
 
 def _openai_prompt_for_replace(image_rgb: Image.Image, crop_rgb: Image.Image) -> str:
+    _ensure_openai_key()
     image_description = _blip_caption(image_rgb)
     masked_object_description = _blip_caption(crop_rgb)
-
     user_message = (
         f"Generate a prompt to replace the {masked_object_description} in an image similar to "
         f"'{image_description}', focusing on the areas defined by the provided masks. "
         f"Ensure the objects fit seamlessly into the scene."
     )
-
     completion = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -846,14 +825,13 @@ def _openai_prompt_for_replace(image_rgb: Image.Image, crop_rgb: Image.Image) ->
     return completion.choices[0].message.content.strip()
 
 def _openai_prompt_for_create(image_rgb_512: Image.Image) -> str:
+    _ensure_openai_key()
     image_description = _blip_caption(image_rgb_512)
-
     chatgpt_prompt = (
         f"Given the image description: '{image_description}', suggest a specific object "
         f"that would enhance the image. The object should be easily recognizable and should "
         f"not introduce complexity to the image."
     )
-
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
@@ -866,78 +844,62 @@ def _openai_prompt_for_create(image_rgb_512: Image.Image) -> str:
     suggestion = response.choices[0].message.content.strip()
     return f"Add '{suggestion}' to the image."
 
-# ============================================================
-# 4) AI pipeline
-# ============================================================
-def remove_ai(
-    x_chw_u8: torch.Tensor,
-    strength: Any = None,
-    *,
-    threshold_area: int = 500,
-    feather_radius: int = 2,
-    median_kernel: int = 1,
-    yolo_weights: str = "yolov10x.pt",
-    sam_checkpoint: str = "weights/sam_vit_h_4b8939.pth",
-    sam_model_type: str = "vit_h",
-    device: Optional[str] = None,
-) -> torch.Tensor:
-    image = _chw_u8_to_pil_rgb(x_chw_u8)
-    mask = _make_primary_mask_yolo_sam(
-        image,
-        threshold_area=threshold_area,
-        yolo_weights=yolo_weights,
-        sam_checkpoint=sam_checkpoint,
-        sam_model_type=sam_model_type,
-        device=device,
-    )
+def _make_dalle_edit_mask(image_rgb: Image.Image, mask_l: Image.Image) -> Image.Image:
 
-    if feather_radius > 0:
-        mask = mask.filter(ImageFilter.GaussianBlur(radius=feather_radius))
+    img = np.array(image_rgb.convert("RGB"), dtype=np.uint8)
+    m = (np.array(mask_l.convert("L"), dtype=np.uint8) > 0)
 
-    from simple_lama_inpainting import SimpleLama
-    import cv2
+    blended = img.copy()
+    blended[m] = 0  
 
-    lama = SimpleLama()
-    result = lama(image, mask)
+    rgba = np.dstack([blended, np.full(blended.shape[:2], 255, dtype=np.uint8)])  
+    black = (rgba[..., 0] == 0) & (rgba[..., 1] == 0) & (rgba[..., 2] == 0)
+    rgba[black, 3] = 0  
 
-    result_bgr = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
-    if median_kernel and median_kernel > 1:
-        result_bgr = cv2.medianBlur(result_bgr, int(median_kernel))
-    result = Image.fromarray(cv2.cvtColor(result_bgr, cv2.COLOR_BGR2RGB))
+    return Image.fromarray(rgba, mode="RGBA")
 
-    return _pil_rgb_to_chw_u8(result, x_chw_u8)
+def _pil_to_png_bytes(pil_img: Image.Image) -> BytesIO:
+    buf = BytesIO()
+    pil_img.save(buf, format="PNG")
+    buf.seek(0)
+    return buf
 
+# -------------------- Attacks --------------------
 
 def replace_ai(
     x_chw_u8: torch.Tensor,
     strength: Any = None,
     *,
-    threshold_area: int = 500,
-    yolo_weights: str = "yolov10x.pt",
-    sam_checkpoint: str = "weights/sam_vit_h_4b8939.pth",
-    sam_model_type: str = "vit_h",
-    device: Optional[str] = None,
-    # OpenAI edit params (match your notebook defaults)
+    threshold_area: int = 5000,            
+    feather_radius: int = 0,               
     openai_size: str = "1024x1024",
     openai_image_model: str = "dall-e-2",
+    **kwargs,
 ) -> torch.Tensor:
+
+    import openai  
+
+    _ensure_openai_key()
+
     image = _chw_u8_to_pil_rgb(x_chw_u8)
 
-    mask = _make_primary_mask_yolo_sam(
-        image,
-        threshold_area=threshold_area,
-        yolo_weights=yolo_weights,
-        sam_checkpoint=sam_checkpoint,
-        sam_model_type=sam_model_type,
-        device=device,
-    )
-    crop = _masked_crop(image, mask)
+    mask_l = _make_primary_mask_yolo_sam(image, threshold_area=threshold_area)
+
+    if feather_radius and feather_radius > 0:
+        mask_l = mask_l.filter(ImageFilter.GaussianBlur(radius=float(feather_radius)))
+
+    crop = _masked_crop(image, mask_l)
 
     prompt = _openai_prompt_for_replace(image, crop)
 
+    mask_rgba = _make_dalle_edit_mask(image, mask_l)
+
+    img_buf = _pil_to_png_bytes(image.convert("RGB"))
+    msk_buf = _pil_to_png_bytes(mask_rgba)
+
     resp = openai.Image.create_edit(
-        image=_pil_rgb_to_filelike_png(image),
-        mask=_pil_mask_to_filelike_png(mask),
+        image=img_buf,
+        mask=msk_buf,
         prompt=prompt,
         n=1,
         size=openai_size,
@@ -948,42 +910,83 @@ def replace_ai(
     r = requests.get(url)
     r.raise_for_status()
 
-    out = Image.open(io.BytesIO(r.content)).convert("RGB").resize(image.size, Image.LANCZOS)
+    out = Image.open(BytesIO(r.content)).convert("RGB").resize(image.size, Image.LANCZOS)
     return _pil_rgb_to_chw_u8(out, x_chw_u8)
+
+
+def remove_ai(
+    x_chw_u8: torch.Tensor,
+    strength: Any = None,
+    *,
+    threshold_area: int = 5000,        
+    feather_radius: int = 2,
+    median_kernel: int = 1,
+    upscale_factor: float = 1.0,       
+    **kwargs,
+) -> torch.Tensor:
+
+    image = _chw_u8_to_pil_rgb(x_chw_u8)
+
+    mask_l = _make_primary_mask_yolo_sam(image, threshold_area=threshold_area)
+
+    if feather_radius and feather_radius > 0:
+        mask_l = mask_l.filter(ImageFilter.GaussianBlur(radius=float(feather_radius)))
+
+    if upscale_factor and float(upscale_factor) != 1.0:
+        s = float(upscale_factor)
+        new_w = max(1, int(round(image.size[0] * s)))
+        new_h = max(1, int(round(image.size[1] * s)))
+        image_in = image.resize((new_w, new_h), Image.LANCZOS)
+        mask_in = mask_l.resize((new_w, new_h), Image.LANCZOS)
+    else:
+        image_in = image
+        mask_in = mask_l
+
+    from simple_lama_inpainting import SimpleLama
+    import cv2
+
+    lama = SimpleLama()
+    result = lama(image_in, mask_in)  
+
+    result_bgr = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
+
+    k = int(median_kernel) if median_kernel is not None else 0
+    if k > 1:
+        if k % 2 == 0:
+            k += 1
+        result_bgr = cv2.medianBlur(result_bgr, k)
+
+    result = Image.fromarray(cv2.cvtColor(result_bgr, cv2.COLOR_BGR2RGB))
+
+    if result.size != image.size:
+        result = result.resize(image.size, Image.LANCZOS)
+
+    return _pil_rgb_to_chw_u8(result, x_chw_u8)
+
 
 def create_ai(
     x_chw_u8: torch.Tensor,
     strength: Any = None,
     *,
-    threshold_area: int = 500,
-    yolo_weights: str = "yolov10x.pt",
-    sam_checkpoint: str = "weights/sam_vit_h_4b8939.pth",
-    sam_model_type: str = "vit_h",
-    device: Optional[str] = None,
-    # diffusion params (match your creation.py defaults)
+    threshold_area: int = 5000,  
     model_name: str = "paint-by-inpaint/general-finetuned-mb",
     diffusion_steps: int = 50,
     guidance_scale: float = 7.0,
     image_guidance_scale: float = 1.5,
+    **kwargs,
 ) -> torch.Tensor:
 
-    image = _chw_u8_to_pil_rgb(x_chw_u8)
+    _ensure_openai_key() 
 
-    mask = _make_primary_mask_yolo_sam(
-        image,
-        threshold_area=threshold_area,
-        yolo_weights=yolo_weights,
-        sam_checkpoint=sam_checkpoint,
-        sam_model_type=sam_model_type,
-        device=device,
-    )
+    image = _chw_u8_to_pil_rgb(x_chw_u8)
+    mask_l = _make_primary_mask_yolo_sam(image, threshold_area=threshold_area).convert("L")
 
     image_512 = image.resize((512, 512))
-    mask_512 = mask.convert("L").resize((512, 512))
+    mask_512 = mask_l.resize((512, 512))
 
     prompt = _openai_prompt_for_create(image_512)
 
-    pipe, pipe_dev = _get_instruct_pix2pix(model_name=model_name, device=device)
+    pipe, _ = _get_instruct_pix2pix(model_name=model_name)
     out_images = pipe(
         prompt,
         image=image_512,
@@ -1005,6 +1008,7 @@ __all__ = [
     "blurring", "brightness", "sharpness", "median_filtering",
     "remove_ai", "replace_ai", "create_ai"
 ]
+
 
 
 
