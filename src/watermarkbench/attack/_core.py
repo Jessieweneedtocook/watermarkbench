@@ -878,49 +878,63 @@ def replace_ai(
     x_chw_u8: torch.Tensor,
     strength: Any = None,
     *,
-    threshold_area: int = 5000,            
-    feather_radius: int = 0,               
+    threshold_area: int = 5000,
+    feather_radius: int = 0,
     openai_size: str = "1024x1024",
     openai_image_model: str = "dall-e-2",
     **kwargs,
 ) -> torch.Tensor:
-
-    import openai  
+    import os
+    import tempfile
+    import requests
+    from io import BytesIO
 
     _ensure_openai_key()
 
     image = _chw_u8_to_pil_rgb(x_chw_u8)
-
     mask_l = _make_primary_mask_yolo_sam(image, threshold_area=threshold_area)
 
     if feather_radius and feather_radius > 0:
         mask_l = mask_l.filter(ImageFilter.GaussianBlur(radius=float(feather_radius)))
 
     crop = _masked_crop(image, mask_l)
-
     prompt = _openai_prompt_for_replace(image, crop)
-
     mask_rgba = _make_dalle_edit_mask(image, mask_l)
 
-    img_file = _pil_to_png_bytes(image.convert("RGB"))
-    img_file.name = "image.png"
-    img_file.seek(0)
-    
-    msk_file = _pil_to_png_bytes(mask_rgba)
-    msk_file.name = "mask.png"
-    msk_file.seek(0)
-    
-    resp = openai.Image.create_edit(
-        image=img_file,
-        mask=msk_file,
-        prompt=prompt,
-        n=1,
-        size=openai_size,
-        model=openai_image_model,
-    )
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set")
 
-    url = resp["data"][0]["url"]
-    r = requests.get(url)
+    with tempfile.TemporaryDirectory() as td:
+        img_path = str(Path(td) / "image.png")
+        msk_path = str(Path(td) / "mask.png")
+
+        image.convert("RGB").save(img_path, format="PNG")
+        mask_rgba.save(msk_path, format="PNG")
+
+        url = "https://api.openai.com/v1/images/edits"
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+        # Force correct part mimetypes here:
+        with open(img_path, "rb") as img_fp, open(msk_path, "rb") as msk_fp:
+            files = {
+                "image": ("image.png", img_fp, "image/png"),
+                "mask": ("mask.png", msk_fp, "image/png"),
+            }
+            data = {
+                "prompt": prompt,
+                "n": 1,
+                "size": openai_size,
+                "model": openai_image_model,
+            }
+            resp = requests.post(url, headers=headers, files=files, data=data, timeout=120)
+            if resp.status_code >= 400:
+                raise RuntimeError(f"OpenAI images/edits error {resp.status_code}: {resp.text}")
+
+            payload = resp.json()
+
+    edit_url = payload["data"][0]["url"]
+    r = requests.get(edit_url)
     r.raise_for_status()
 
     out = Image.open(BytesIO(r.content)).convert("RGB").resize(image.size, Image.LANCZOS)
@@ -1021,6 +1035,7 @@ __all__ = [
     "blurring", "brightness", "sharpness", "median_filtering",
     "remove_ai", "replace_ai", "create_ai"
 ]
+
 
 
 
